@@ -1,0 +1,648 @@
+---
+title: "R Markdown"
+author: "Lubaba Ferdous Alim"
+date: "2023-11-19"
+output: html_document
+---
+
+```{r}
+require(ggplot2)
+require(GGally)
+require(MASS)
+require(car)
+library(leaps)
+```
+
+```{r}
+data = read.table("Plasma.txt", header = TRUE)
+(n = nrow(data))
+(p = ncol(data))
+```
+
+-   315 observations and 14 variables
+
+```{r}
+names(data) = c("age", "sex", "smokstat", "quetelet", "vituse", "calories", "fat", "fiber", "alcohol", "cholesterol", "betadiet", "retdiet", "betaplasma", "retplasma")
+```
+
+```{r}
+sapply(data, function(x) sum(is.na(x)))
+```
+
+-   no missing data
+
+```{r}
+sapply(data, class)
+```
+
+```{r}
+data$sex = as.factor(data$sex)
+data$smokstat = as.factor(data$smokstat)
+data$vituse = as.factor(data$vituse)
+
+sapply(data, class)
+```
+
+```{r}
+table(data$sex)
+table(data$smokstat)
+table(data$vituse)
+```
+
+```{r}
+summary(data)
+```
+
+-   The maximum value with a single observation of the variable alcohol is 203.
+    The next largest value is 35. This is most likely an outlier.
+-   The minimum value with a single observation of the variable betaplasma is 0.
+    The next smallest value is 14. This is also likely an outlier.
+
+```{r}
+data = data[,-14]
+```
+
+**Exploratory Data Analysis**
+
+```{r}
+hist(data$betaplasma, xlab = "Betaplasma", main = "Histogram of Betaplasma")
+```
+
+-   The histogram of Betaplasma is heavily right tailed. A log transformation
+    may be necessary.
+
+```{r}
+par(mfrow = c(3, 3))
+for(i in c(1,4,6:12)) {
+hist(data[, i], main=paste("Histogram of", names(data)[i]), xlab = paste(names(data)[i]))}
+```
+
+```{r}
+boxplot(data$alcohol)
+```
+
+-   The maximum value of alcohol consumption seems much higher than the rest of
+    the values. This is potentially an outlier. It is ideal to see the
+    distribution of alcohol consumption excluding this value.
+
+```{r}
+alcohol_outlier=which(data$alcohol==203)
+par(mfrow=c(1,2))
+hist(data$alcohol, main="Histogram of Alcohol")
+hist(data$alcohol[-alcohol_outlier], main="Histogram of Alcohol Without Outlier")
+```
+
+```{r}
+data = data[-c(which(data$alcohol==203),which(data$betaplasma==0)),]
+```
+
+```{r}
+pairplot = ggpairs(data[c(1,4,6:13)], progress = F,
+                   lower = list(continuous = "cor", combo = "box_no_facet", discrete = "count", na = "na"),
+                   upper = list(continuous = "points", combo = "facethist", discrete = "facetbar", na = "na"))
+
+pairplot
+```
+
+```{r}
+par(mfrow=c(1,3))
+lab_sex = levels(data$sex)
+pcent_sex = round(100*table(data$sex)/nrow(data))
+lab_sex = paste0(lab_sex, ": ", pcent_sex, "%")
+
+pie(table(data$sex), labels = lab_sex, main = "Pie Chart of Sex", col = palette.colors(palette = "Pastel 1"))
+
+lab_smokstat = levels(data$smokstat)
+pcent_smokstat = round(100*table(data$smokstat)/nrow(data))
+lab_smokstat = paste0(lab_smokstat, ": ", pcent_smokstat, "%")
+
+
+pie(table(data$smokstat), labels = lab_smokstat, main = "Pie Chart of Smokstat", col = palette.colors(palette = "Pastel 1"))
+
+lab_vituse = levels(data$vituse)
+pcent_vituse = round(100*table(data$vituse)/nrow(data))
+lab_vituse = paste0(lab_vituse, ": ", pcent_vituse, "%")
+
+
+pie(table(data$vituse), labels = lab_vituse, main = "Pie Chart of Vituse", col = palette.colors(palette = "Pastel 1"))
+```
+
+```{r}
+par(mfrow=c(1,3))
+boxplot(data$betaplasma~data$sex, main = "Boxplot of Betaplasma vs Sex", xlab = "Sex", ylab = "Betaplasma", col = palette.colors(palette = "Pastel 1"))
+boxplot(data$betaplasma~data$smokstat, main = "Boxplot of Betaplasma vs Smokstat", xlab = "Smokstat", ylab = "Betaplasma", col = palette.colors(palette = "Pastel 1"))
+boxplot(data$betaplasma~data$vituse, main = "Boxplot of Betaplasma vs Vituse", xlab = "Vituse", ylab = "Betaplasma", col = palette.colors(palette = "Pastel 1"))
+```
+
+```{r}
+for(i in c(1,4,6:12)){
+  plot(data[,i], data$betaplasma, pch = as.integer(data$sex), col = as.integer(data$sex), main = "Colour Coded With Sex",ylab = "Betaplasma", xlab = paste(names(data)[i]))
+legend('topright', legend = c("Female","Male"),pch=c(1,2),col=c(1,2))
+}
+```
+
+```{r}
+for(i in c(1,4,6:12)){
+  plot(data[,i], data$betaplasma, pch = as.integer(data$smokstat), col = as.integer(data$smokstat), main = "Colour Coded With Smokstat",ylab = "Betaplasma", xlab = paste(names(data)[i]))
+legend('topright', legend = c("Current","Former", "Never"),pch=c(1,2,3),col=c(1,2,3))
+}
+```
+
+```{r}
+for(i in c(1,4,6:12)){
+  plot(data[,i], data$betaplasma, pch = as.integer(data$vituse), col = as.integer(data$vituse), main = "Colour Coded With Vituse",ylab = "Betaplasma", xlab = paste(names(data)[i]))
+legend('topright', legend = c("No","Not Often", "Often"),pch=c(1,2,3),col=c(1,2,3))
+}
+```
+
+-   The above plots do not visually suggest a need for interaction terms of each
+    of the categorical variables with the quantitative variables.
+
+```{r}
+y = data$betaplasma
+
+#categorical predictor variables
+X_c = data[, c(2,3,5)]
+colnames(X_c) = c("sex","smokstat","vituse")
+
+#quantitative predictor variables
+X_q = data[, c(1,4,6:12)]
+colnames(X_q) = c("age","quetelet","calories","fat","fiber","alcohol", "cholesterol", "betadiet", "retdiet")
+
+
+# new dataset 
+d = cbind(y,X_q,X_c)
+str(d)
+```
+
+**Data Splitting**
+
+```{r}
+set.seed(100)
+n_split = nrow(d)*0.8
+ind = sample(1:n, n_split, replace=FALSE)
+train = d[ind, ] 
+valid = d[-ind, ]
+```
+
+**Preliminary Model Fitting**
+
+```{r}
+fit1 = lm(y~., train)
+summary(fit1)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(fit1, which = 1)
+plot(fit1, which = 2)
+plot(fit1, which = 5)
+boxcox(fit1)
+```
+
+The boxcox plot is suggesting a log transformation of the response variable:
+betaplasma
+
+```{r}
+fit2 = lm(log(y)~., train)
+summary(fit2)
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(fit2, which = 1)
+plot(fit2, which = 2)
+plot(fit2, which = 5)
+boxcox(fit2)
+```
+
+```{r}
+par(mfrow=c(2,2))
+for (i in c(2:10)){
+  plot(fit2$model[,i], fit2$residuals,
+       main = paste("Residual vs",names(fit2$model)[i]),
+       xlab = paste(names(fit2$model)[i]),
+       ylab = paste("Residuals"))
+}
+```
+
+-   Higher order terms of the predictor variables are not being suggested.
+
+```{r}
+par(mfrow = c(2,3))
+for (i in 2:9){
+  for (j in (i+1):10){
+    plot(fit2$model[, i]*fit2$model[, j], fit2$residuals,
+    main = paste0("Residuals vs ", names(fit2$model)[i],"*",names(fit2$model)[j]),
+    xlab = paste0(names(fit2$model)[i],"*",names(fit2$model)[j]),
+    ylab = "Residuals"
+    )
+  }
+}
+```
+
+-   Interactions terms are also not being suggested by the above plots.
+
+fitting the model without retdiet in fit3
+
+```{r}
+fit3 = lm(log(y)~age+quetelet+calories+fat+fiber+alcohol+cholesterol+betadiet+sex+smokstat+vituse, train)
+summary(fit3)
+```
+
+```{r}
+anova(fit3,fit2)
+```
+
+-   fit3 is better than fit2
+
+Alcohol removed.
+
+```{r}
+fit4 = lm(log(y)~age+quetelet+calories+fat+fiber+cholesterol+betadiet+sex+smokstat+vituse, train)
+summary(fit4)
+```
+
+```{r}
+anova(fit4,fit3)
+```
+
+-   fit4 is better than fit 3
+
+```{r}
+par(mfrow=c(2,2))
+for (i in c(2:8)){
+  plot(fit4$model[,i], fit4$residuals,
+       main = paste("Residual vs",names(fit4$model)[i]),
+       xlab = paste(names(fit4$model)[i]),
+       ylab = paste("Residuals"))
+}
+```
+
+```{r}
+par(mfrow = c(2,3))
+for (i in 2:7){
+  for (j in (i+1):8){
+    plot(fit4$model[, i]*fit4$model[, j], fit4$residuals,
+    main = paste0("Residuals vs ", names(fit4$model)[i],"*",names(fit4$model)[j]),
+    xlab = paste0(names(fit4$model)[i],"*",names(fit4$model)[j]),
+    ylab = "Residuals"
+    )
+  }
+}
+```
+
+```{r}
+vif(fit4)
+```
+
+-   Calories showing highest multicollineariry. So in the following, calories
+    has been removed.
+
+```{r}
+fit5 = lm(log(y)~age+quetelet+fat+fiber+cholesterol+betadiet+sex+smokstat+vituse, train)
+summary(fit5)
+```
+
+-   Since fat, calories and cholesterol have high correlation as shown in the
+    pair plot, 3 models with each of them being removed respectively have been
+    formed and compared with fit4 containing all of these three variables.
+
+```{r}
+anova(fit5, fit4)
+```
+
+```{r}
+fit6 = lm(log(y)~age+quetelet+calories+fat+fiber+betadiet+sex+smokstat+vituse, train)
+summary(fit6)
+
+anova(fit6, fit4)
+```
+
+```{r}
+fit7 = lm(log(y)~age+quetelet+calories+fiber+cholesterol+betadiet+sex+smokstat+vituse, train)
+summary(fit7)
+
+anova(fit7, fit4)
+```
+
+```{r}
+vif(fit7)
+```
+
+```{r}
+# par(mfrow=c(2,2))
+for (i in c(2:7)){
+  plot(fit7$model[,i], fit7$residuals,
+       main = paste("Residual vs",names(fit7$model)[i]),
+       xlab = paste(names(fit7$model)[i]),
+       ylab = paste("Residuals"))
+}
+```
+
+```{r}
+par(mfrow = c(2,3))
+for (i in 2:6){
+  for (j in (i+1):7){
+    plot(fit7$model[, i]*fit7$model[, j], fit7$residuals,
+    main = paste0("Residuals vs ", names(fit7$model)[i],"*",names(fit7$model)[j]),
+    xlab = paste0(names(fit7$model)[i],"*",names(fit7$model)[j]),
+    ylab = "Residuals"
+    )
+  }
+}
+```
+
+**Model Selection**
+
+-   The following three models are used as upper models to conduct AIC and BIC
+    proceedures
+
+```{r}
+fit0 = lm(log(y)~1, train)
+```
+
+```{r}
+fit_upper = lm(log(y) ~ (.)^2 + I(age^2) + I(quetelet^2) + I(calories^2) + I(fat^2) + I(fiber^2) + I(alcohol^2) + I(cholesterol^2) + I(betadiet^2) + I(retdiet^2), data = train)
+summary(fit_upper)
+```
+
+```{r}
+fit_upper1 = lm(log(y) ~ .^2, data = train)
+summary(fit_upper1)
+```
+
+```{r}
+fit2
+```
+
+```{r}
+summary(fit2)
+```
+
+**Model Selection**
+
+1.  Using forward stepwise and AIC criterion
+
+```{r}
+step_f1.1 = stepAIC(fit0, scope = list(upper = fit_upper, lower = ~1), trace = TRUE, direction = "both", k = 2)
+step_f1.1$anova
+```
+
+```{r}
+summary(lm(log(y) ~ I(fiber^2) + quetelet + vituse + I(calories^2) + smokstat + I(cholesterol^2) + vituse:smokstat, train))
+```
+
+```{r}
+step_f1.2 = stepAIC(fit0, scope = list(upper = fit_upper1, lower = ~1), trace = TRUE, direction = "both", k = 2)
+step_f1.2$anova
+```
+
+```{r}
+summary(lm(log(y) ~ fiber + quetelet + vituse + calories + smokstat + betadiet + vituse:smokstat + fiber:smokstat, train))
+```
+
+```{r}
+step_f1.3 = stepAIC(fit0, scope = list(upper = fit2, lower = ~1), trace = TRUE, direction = "both", k = 2)
+step_f1.3$anova
+```
+
+```{r}
+fit7.1 = lm(log(y) ~ fiber + quetelet + vituse + calories + smokstat, train)
+```
+
+```{r}
+summary(fit7.1)
+```
+
+```{r}
+anova(fit7.1, fit7)
+```
+
+Using AIC fit7.1 seems to be the best model so far
+
+2.  Using stepwise selection and BIC criterion
+
+```{r}
+step_f2 = stepAIC(fit0, scope = list(upper = fit_upper, lower = ~1), trace = TRUE, direction = "both", k=log(n))
+step_f2$anova
+```
+
+```{r}
+fit8 = lm(log(y) ~ I(fiber^2) + quetelet + I(calories^2) + 
+    vituse, data = train)
+summary(fit8)
+```
+
+```{r}
+step_f2.1 = stepAIC(fit0, scope = list(upper = fit_upper1, lower = ~1), trace = TRUE, direction = "both", k = log(n))
+step_f2.1$anova
+```
+
+```{r}
+fit8.1 = lm(log(y) ~ fiber + quetelet + calories + vituse, train)
+summary(fit8.1)
+```
+
+```{r}
+anova(fit8.1,fit7.1)
+```
+
+Fit 7.1 is better
+
+```{r}
+step_f2.2 = stepAIC(fit0, scope = list(upper = fit2, lower = ~1), trace = TRUE, direction = "both", k = log(n))
+step_f2.2$anova
+```
+
+The final model from the above procedure is the same as the model in fit8.1.
+Therefore, so far fit7.1 from AIC criterion and fit8 from BIC criterion are the
+best models.
+
+3.  Best subset selection procedure
+
+```{r}
+sub_set = regsubsets(log(y) ~ ., data = train, nbest = 1, nvmax = 14, method = 'exhaustive')
+sum_sub = summary(sub_set)
+n = nrow(train)
+# number of coefficients in each model: p
+p_m = as.integer(as.numeric(rownames(sum_sub$which)) + 1)
+sse = sum_sub$rss
+aic = n*log(sse/n) + 2*p_m
+bic = n*log(sse/n) + log(n)*p_m
+res_sub = cbind(sum_sub$which, sse, sum_sub$rsq, sum_sub$adjr2,p=2:15, sum_sub$cp, aic, bic)
+sse1 = sum(fit0$residuals^2)
+p = 1
+c1 = sse1/(summary(fit0)$sigma^2) - (n-2*p)
+aic1 = n*log(sse1/n) + 2*p
+bic1 = n*log(sse1/n) + log(n)*p
+none = c(1, rep(0,13), sse1, 0, 0, c1, bic1, aic1)
+colnames(res_sub) = c(colnames(sum_sub$which),"sse", "Rˆ2", "Rˆ2_a","p", "Cp", "aic", "bic")
+
+res_sub = round(res_sub,5)
+
+for (i in c(17,18)) {
+  ind = which(res_sub[, i] == max(as.numeric(res_sub[, i])))
+  res_sub[ind, i] = paste0(res_sub[ind, i], '*')
+}
+
+for (i in c(16, 21,22)) {
+  ind = which(res_sub[, i] == min(as.numeric(res_sub[, i])))
+  res_sub[ind, i] = paste0(res_sub[ind, i], '*')
+}
+
+ind = which(abs(as.numeric(res_sub[-14,19]) - as.numeric(res_sub[-14, 20])) == min(abs(as.numeric(res_sub[-14,19]) - as.numeric(res_sub[-14, 20]))))
+res_sub[ind, 20] = paste0(res_sub[ind, 20], '*')
+
+res_sub = noquote(res_sub)
+res_sub
+```
+
+-   Best model
+
+    According to SSE, $R^2$ : the full model
+
+    According to $R^2_a$: intercept, age, quetelet, calories, fiber, sex,
+    smokstat and vituse.
+
+    According to $C_p$ : intercept age, quetelet, calories, fat, fiber,
+    cholesterol, betadiet, retdiet, sex, smokstat and vituse.
+
+    According to AIC: intercept, fiber, quetelet, vituse, calories and smokstat
+    exactly same as fit7.1
+
+    Accroding to BIC: intercept, fiber, quetelet, vituse, calories exactly same
+    as fit8.1
+
+The $C_p$ of fit7.1 is 6.74041 which is close to the number of parameters (8).
+
+```{r}
+p_8 = nrow(summary(fit8)$coeff)
+p_8
+sse8 = sum(fit8$residuals^2)
+C_p8 = sse8/(summary(fit_upper)$sigma^2) - (n-2*p_8)
+C_p8
+```
+
+The $C_p$ of model 8 is very close to the number of paramets as well.
+
+Therefore, we will consider fit7.1 and fit8 to be the best models.
+
+**Model Validation:**
+
+Internal Validation:
+
+```{r}
+press_7.1 = sum(step_f1.3$residuals^2/(1-influence(step_f1.3)$hat)^2)
+
+sse_7.1 = sum(summary(fit7.1)$residual^2)
+
+cbind(sse_7.1,press_7.1)
+```
+
+```{r}
+press_8 = sum(step_f2.1$residuals^2/(1-influence(step_f2.1)$hat)^2)
+
+sse_8 = sum(summary(fit8)$residual^2)
+
+cbind(sse_8,press_8)
+```
+
+-   $Press_p$ for both the candidate models are very close to $SSE_p$.
+    Therefore, they are valid because they have little bias and not much
+    overfitting.
+
+External Validation:
+
+7.1
+
+```{r}
+fit7.1_v = lm(log(y)~ fiber + quetelet + vituse + calories + smokstat, valid)
+coef_fit7.1 = round(coef(fit7.1), 5)
+coef_fit7.1_v = round(coef(fit7.1_v), 5)
+pcent.coef1 = round(abs(abs(coef(fit7.1)) - abs(coef(fit7.1_v)))/abs(coef(fit7.1))*100, 3)
+sd_7.1 = summary(fit7.1)$coefficients[,"Std. Error"]
+sd_7.1_v = summary(fit7.1_v)$coefficients[,"Std. Error"]
+pcent.se1 = round(abs(sd_7.1 - sd_7.1_v)/sd_7.1*100, 3)
+
+cbind(coef_fit7.1,coef_fit7.1_v,pcent.coef1,sd_7.1,sd_7.1_v,pcent.se1)
+```
+
+```{r}
+test = log(valid[1])
+pred_7.1 = predict.lm(lm(log(y)~ fiber + quetelet + vituse + calories + smokstat, train), valid[,-1])
+mspe_7.1 = sum(((pred_7.1 - test)^2))/nrow(test)
+mse_7.1 = sum(summary(fit7.1)$sigma^2)
+cbind(mspe_7.1, "press_7.1/n" = press_7.1/n, mse_7.1)
+```
+
+8
+
+```{r}
+fit8_v = lm(log(y) ~ I(fiber^2) + quetelet + I(calories^2) + vituse, valid)
+coef_fit8 = round(coef(fit8), 5)
+coef_fit8_v = round(coef(fit8_v), 5)
+pcent.coef2 = round(abs(coef(fit8) - coef(fit8_v))/abs(coef(fit8))*100, 3)
+sd_8 = summary(fit8)$coefficients[,"Std. Error"]
+sd_8_v = summary(fit8_v)$coefficients[,"Std. Error"]
+pcent.se2 = round(abs(sd_8 - sd_8_v)/sd_8*100, 3)
+
+cbind(coef_fit8,coef_fit8_v,pcent.coef2,sd_8,sd_8_v,pcent.se2)
+```
+
+```{r}
+pred_8 = predict.lm(lm(log(y) ~ I(fiber^2) + quetelet + I(calories^2) + vituse, train), valid[,-1])
+mspe_8 = sum(((pred_8 - test)^2))/nrow(test)
+mse_8 = sum(summary(fit8)$sigma^2)
+cbind(mspe_8, "press_8/n" = press_8/n, mse_8)
+```
+
+```{r}
+fit_7.1_final = lm(log(y)~ fiber + quetelet + vituse + calories + smokstat, data = data) 
+summary(fit_7.1_final)
+anova(fit_7.1_final)
+```
+
+**Model diagnostics: Outlying and influential cases.**
+
+```{r}
+par(mfrow=c(1,2))
+plot(fit_7.1_final, which = 1:2)
+```
+
+Checking outliers in Y
+
+```{r}
+res = residuals(fit_7.1_final)
+p = length(fit_7.1_final$coefficients)
+h1 = influence(fit_7.1_final)$hat
+d_res_std = studres(fit_7.1_final) 
+qt(1-0.1/(2*nrow(data)), nrow(data)-1-8)
+```
+
+```{r}
+idx_Y = as.vector(which(abs(d_res_std) >= qt(1-0.1/(2*nrow(data)), nrow(data)-1-8)))
+idx_Y
+```
+
+-   No outliers in Betaplasma
+
+Checking for outliers in predictor variables
+
+```{r}
+idx_X = as.vector(which(h1 > (2*8/nrow(data))))
+idx_X 
+```
+
+```{r}
+plot(h1, res, xlab = "leverage", ylab = "residuals")
+```
+
+-   There are 14 cases defined as outlying X observations, their indexes are
+    shown above.
+
+```{r}
+plot(fit_7.1_final, which=4)
+```
+
+Cook's distance is not suggesting any high leverage observations
